@@ -1,0 +1,8 @@
+build/
+__pycache__/
+*.so
+*.pyd
+.DS_Store
+.vscode/
+.venv/
+.idea/

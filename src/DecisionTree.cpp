@@ -59,25 +59,25 @@ static double calculate_gini(const std::vector<double>& y, const std::vector<int
 void DecisionTree::fit(const Matrix<double>& X_train, const std::vector<double>& y_train){
     std::vector<int> indices(X_train.rows());
     std::iota(indices.begin(), indices.end(), 0);
-    root = build_tree(X_train, y_train, indices, 0);
+    root_ = build_tree(X_train, y_train, indices, 0);
 }
 
 std::unique_ptr<Node> DecisionTree::build_tree(const Matrix<double>& X, const std::vector<double>& y, const std::vector<int>& indices, int depth) {
     double predicted_value;
-    if (task_type == TaskType::REGRESSION) {
+    if (task_type_ == TaskType::REGRESSION) {
         predicted_value = calculate_mean(y, indices);
     } else {
         predicted_value = calculate_mode(y, indices);
     }
 
-    if (depth >= max_depth || indices.size() < min_samples_split) {
+    if (depth >= max_depth_ || static_cast<int>(indices.size()) < min_samples_split_) {
         return std::make_unique<Node>(predicted_value);
     }
 
     bool pure = true;
     if (!indices.empty()) {
         double first = y[indices[0]];
-        for (int i = 1; i < indices.size(); ++i) {
+        for (size_t i = 1; i < indices.size(); ++i) {
             if (y[indices[i]] != first) {
                 pure = false;
                 break;
@@ -91,7 +91,7 @@ std::unique_ptr<Node> DecisionTree::build_tree(const Matrix<double>& X, const st
     double best_reduction = -1.0;
     
     double current_impurity;
-    if (task_type == TaskType::REGRESSION) current_impurity = calculate_variance(y, indices);
+    if (task_type_ == TaskType::REGRESSION) current_impurity = calculate_variance(y, indices);
     else current_impurity = calculate_gini(y, indices);
 
     int n_features = X.cols();
@@ -109,7 +109,7 @@ std::unique_ptr<Node> DecisionTree::build_tree(const Matrix<double>& X, const st
             if (left_idx.empty() || right_idx.empty()) continue;
 
             double imp_left, imp_right;
-            if (task_type == TaskType::REGRESSION) {
+            if (task_type_ == TaskType::REGRESSION) {
                 imp_left = calculate_variance(y, left_idx);
                 imp_right = calculate_variance(y, right_idx);
             } else {
@@ -144,4 +144,16 @@ std::unique_ptr<Node> DecisionTree::build_tree(const Matrix<double>& X, const st
     }
 
     return std::make_unique<Node>(predicted_value);
+}
+
+double DecisionTree::predict(const Matrix<double>& X, int row_idx) const {
+    Node* current = root_.get();
+    while (current && (current->left || current->right)) {
+        if (X(row_idx, current->feature_index) <= current->threshold) {
+            current = current->left.get();
+        } else {
+            current = current->right.get();
+        }
+    }
+    return current ? current->value : 0.0;
 }

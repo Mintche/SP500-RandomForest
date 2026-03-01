@@ -46,17 +46,17 @@ struct Node {
 
 class DecisionTree {
     private:
-        int max_depth;
-        int min_samples_split;
-        TaskType task_type;
-        std::unique_ptr<Node> root;
+        int max_depth_;
+        int min_samples_split_;
+        TaskType task_type_;
+        std::unique_ptr<Node> root_;
         std::unique_ptr<Node> build_tree(const Matrix<double>& X, const std::vector<double>& y, const std::vector<int>& indices, int depth);
     public:
-        DecisionTree(int max_depth_ = 10, int min_samples_split_ = 2, TaskType task_type_ = TaskType::REGRESSION) : max_depth(max_depth_), min_samples_split(min_samples_split_), task_type(task_type_), root(nullptr) {}
+        DecisionTree(int max_depth = 10, int min_samples_split = 2, TaskType task_type = TaskType::REGRESSION) : max_depth_(max_depth), min_samples_split_(min_samples_split), task_type_(task_type), root_(nullptr) {}
         ~DecisionTree() {};
 
         void fit(const Matrix<double>& X_train, const std::vector<double>& y_train);
-        double predict(const std::vector<double>& features_test) const;
+        double predict(const Matrix<double>& X, int row_idx) const;
 };
 
 #endif

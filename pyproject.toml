@@ -1,0 +1,23 @@
+[build-system]
+requires = ["scikit-build-core", "pybind11", "cmake"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "RandomForestcpp"
+version = "0.1.0"
+description = "Prediction du S&P500 avec un Random Forest C++"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Mintche"}
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "yfinance",
+    "matplotlib"
+]
+
+[tool.scikit-build]
+cmake.verbose = true

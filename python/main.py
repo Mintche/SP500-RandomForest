@@ -5,7 +5,8 @@ from data_loader import SP500Loader
 
 def main():
     # 1. Chargement des données
-    loader = SP500Loader(start_date="2010-01-01", end_date="2023-12-31")
+    HORIZON = 5
+    loader = SP500Loader(start_date="2010-01-01", end_date="2023-12-31", forecast_horizon=HORIZON)
     df = loader.fetch_data()
     
     if df.empty:
@@ -47,8 +48,14 @@ def main():
     real_prices = last_close_prices * (1 + y_test)
 
     # Évaluation (RMSE sur les prix reconstruits)
+    naive_predictions = np.zeros_like(y_test)
+    naive_predicted_prices = last_close_prices * (1 + naive_predictions)
+    
     rmse = np.sqrt(np.mean((predicted_prices - real_prices)**2))
-    print(f"RMSE sur le prix reconstruit: {rmse:.4f}")
+    rmse_naive = np.sqrt(np.mean((naive_predicted_prices - real_prices)**2))
+
+    print(f"RMSE du Modèle Naïf (Rendement=0) sur {HORIZON} jours: {rmse_naive:.4f}")
+    print(f"RMSE du Random Forest sur {HORIZON} jours: {rmse:.4f}")
 
     # Visualisation des résultats
     plt.figure(figsize=(12, 6))

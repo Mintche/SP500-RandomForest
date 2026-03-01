@@ -17,6 +17,9 @@ execute_process(
 
 find_package(pybind11 REQUIRED)
 
+# Recherche d'OpenMP
+find_package(OpenMP REQUIRED)
+
 # Spécifie où se trouvent tes fichiers headers (.hpp)
 include_directories(include)
 
@@ -30,6 +33,9 @@ set(SOURCES
 # Création du module Python
 # Le nom 'RandomForestcpp' doit correspondre exactement à celui dans PYBIND11_MODULE
 pybind11_add_module(RandomForestcpp ${SOURCES})
+
+# Liaison avec OpenMP (gère automatiquement les flags de compilation et de link)
+target_link_libraries(RandomForestcpp PRIVATE OpenMP::OpenMP_CXX)
 
 # Optimisations de performance
 if(MSVC)

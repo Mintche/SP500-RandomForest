@@ -2,48 +2,36 @@
 #include <random>
 #include <algorithm>
 #include <map>
+#include <omp.h>
 
 RandomForest::RandomForest(int n_trees, int max_depth, int min_samples_split, int n_samples_bootstrap, int max_features, TaskType task_type)
     : n_trees_(n_trees), max_depth_(max_depth), min_samples_split_(min_samples_split),
      n_samples_bootstrap_(n_samples_bootstrap), max_features_(max_features), task_type_(task_type) {
     trees_.reserve(n_trees_);
     for (int i = 0; i < n_trees_; ++i) {
-        trees_.push_back(std::make_unique<DecisionTree>(max_depth, min_samples_split, task_type));
+        trees_.push_back(std::make_unique<DecisionTree>(max_depth, min_samples_split, max_features, task_type));
     }
 }
 
-void RandomForest::fit(const Matrix<double>& X, const std::vector<double>& y) {
+void RandomForest::fit(const Matrix<double>& X, const double* y) {
     int n_samples = X.rows();
-    int n_features = X.cols();
     
-    // bootstrap
+    // Taille du bootstrap
     int N = (n_samples_bootstrap_ == -1) ? n_samples : n_samples_bootstrap_;
 
-    //features max
-    int M;
-    if (task_type_ == TaskType::REGRESSION){
-        M = (max_features_ == -1) ? n_features/3 : max_features_;
-    }
-    else{
-        M = (max_features_ == -1) ? int(std::sqrt(n_features)) : max_features_;
-    }
+    #pragma omp parallel for
+    for (int i = 0; i < n_trees_; ++i) {
+        // Chaque thread a besoin de son propre générateur de nombres aléatoires
+        std::random_device rd;
+        std::mt19937 gen(rd() ^ i); 
+        std::uniform_int_distribution<> dis_sample(0, n_samples - 1);
 
-    Matrix<double> X_boot(N, n_features);
-    std::vector<double> y_boot(N);
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis_sample(0, n_samples - 1);
-
-    for (std::unique_ptr<DecisionTree>& tree : trees_){
-        for (int i=0;i<N;i++){
-            int i_rd = dis_sample(gen);
-            for (int j=0;j<M;j++){
-                X_boot(i,j) = X(i_rd,j);
-            }
-            y_boot[i] = y[i_rd];
+        std::vector<int> boot_indices(N);
+        for (int j = 0; j < N; ++j) {
+            boot_indices[j] = dis_sample(gen);
         }
-        tree->fit(X_boot, y_boot);
+
+        trees_[i]->fit(X, y, boot_indices);
     }
 }
 

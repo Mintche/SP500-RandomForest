@@ -22,43 +22,26 @@ PYBIND11_MODULE(RandomForestcpp, m) {
              py::arg("max_features") = -1,
              py::arg("task_type") = TaskType::REGRESSION)
         
-        // Surcharge pour accepter des numpy arrays directement
-        .def("fit", [](RandomForest& self, py::array_t<double> X_np, py::array_t<double> y_np) {
+        .def("fit", [](RandomForest& self, 
+                       py::array_t<double, py::array::c_style | py::array::forcecast> X_np, 
+                       py::array_t<double, py::array::c_style | py::array::forcecast> y_np) {
             py::buffer_info buf_X = X_np.request();
             py::buffer_info buf_y = y_np.request();
 
             if (buf_X.ndim != 2) throw std::runtime_error("X doit être en 2D");
             
-            // Conversion vers Matrix<double>
-            // On suppose que Matrix a un constructeur (rows, cols) et l'opérateur (i, j)
-            Matrix<double> mat_X(buf_X.shape[0], buf_X.shape[1]);
-            double* ptr_X = static_cast<double*>(buf_X.ptr);
-            for (size_t i = 0; i < buf_X.shape[0]; i++) {
-                for (size_t j = 0; j < buf_X.shape[1]; j++) {
-                    mat_X(i, j) = ptr_X[i * buf_X.shape[1] + j];
-                }
-            }
+            // Création d'une vue Matrix sans copie
+            Matrix<double> mat_X(buf_X.shape[0], buf_X.shape[1], static_cast<const double*>(buf_X.ptr));
+            const double* ptr_y = static_cast<const double*>(buf_y.ptr);
 
-            // Conversion vers std::vector<double> pour y
-            std::vector<double> vec_y(buf_y.size);
-            double* ptr_y = static_cast<double*>(buf_y.ptr);
-            for (size_t i = 0; i < buf_y.size; i++) vec_y[i] = ptr_y[i];
+            self.fit(mat_X, ptr_y);
+        }, "Entraîner le modèle (Zero-Copy)")
 
-            self.fit(mat_X, vec_y);
-        }, "Entraîner le modèle avec des numpy arrays")
-
-        .def("predict", [](RandomForest& self, py::array_t<double> X_np) {
+        .def("predict", [](RandomForest& self, py::array_t<double, py::array::c_style | py::array::forcecast> X_np) {
             py::buffer_info buf_X = X_np.request();
             if (buf_X.ndim != 2) throw std::runtime_error("X doit être en 2D");
-
-            Matrix<double> mat_X(buf_X.shape[0], buf_X.shape[1]);
-            double* ptr_X = static_cast<double*>(buf_X.ptr);
-            for (size_t i = 0; i < buf_X.shape[0]; i++) {
-                for (size_t j = 0; j < buf_X.shape[1]; j++) {
-                    mat_X(i, j) = ptr_X[i * buf_X.shape[1] + j];
-                }
-            }
-
+            
+            Matrix<double> mat_X(buf_X.shape[0], buf_X.shape[1], static_cast<const double*>(buf_X.ptr));
             return self.predict(mat_X);
-        }, "Prédire les valeurs avec des numpy arrays");
+        }, "Prédire les valeurs (Zero-Copy)");
 }

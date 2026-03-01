@@ -1,17 +1,17 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from typing import Tuple, List
+from typing import Tuple
 
 class SP500Loader:
-    def __init__(self, start_date: str, end_date: str):
+    def __init__(self, start_date: str, end_date: str, forecast_horizon: int = 5):
         self.ticker = "^GSPC" # S&P 500
         self.start_date = start_date
         self.end_date = end_date
+        self.forecast_horizon = forecast_horizon # Nouvel attribut : Horizon de prédiction (ex: 5 jours)
 
     def fetch_data(self) -> pd.DataFrame:
         print(f"Téléchargement des données {self.ticker}...")
-        # Téléchargement des données via yfinance
         df = yf.download(self.ticker, start=self.start_date, end=self.end_date, progress=False)
         return df
 
@@ -21,39 +21,34 @@ class SP500Loader:
 
         data = df.copy()
 
-        # --- Feature Engineering ---
-        # 1. Rendements journaliers
+        # --- Feature Engineering (Ne change pas) ---
         data['Returns'] = data['Close'].pct_change()
-        # 2. Moyennes mobiles (SMA)
         data['SMA_5'] = data['Close'].rolling(window=5).mean()
         data['SMA_20'] = data['Close'].rolling(window=20).mean()
-        # 3. Volatilité (Ecart-type glissant)
         data['Volatility'] = data['Returns'].rolling(window=20).std()
         
-        # 4. RSI (Relative Strength Index) - 14 jours
         delta = data['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         data['RSI'] = 100 - (100 / (1 + rs))
 
-        # 5. MACD (Moving Average Convergence Divergence)
         exp1 = data['Close'].ewm(span=12, adjust=False).mean()
         exp2 = data['Close'].ewm(span=26, adjust=False).mean()
         data['MACD'] = exp1 - exp2
         data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
 
-        # 6. Lag Features (Prix des jours précédents)
         data['Lag_1'] = data['Close'].shift(1)
         data['Lag_2'] = data['Close'].shift(2)
 
-        # --- Target ---
-        data['Target'] = data['Returns'].shift(-1)
+        # --- NOUVELLE TARGET ---
+        # On calcule le rendement cumulé entre aujourd'hui et dans 'forecast_horizon' jours
+        # Formule : (Prix_Futur - Prix_Actuel) / Prix_Actuel
+        data['Target'] = (data['Close'].shift(-self.forecast_horizon) - data['Close']) / data['Close']
 
-        # Suppression des NaN générés par les rolling windows et le shift
+        # Suppression des NaN générés par les rolling windows et le shift futur
         data.dropna(inplace=True)
 
-        # Sélection des features et conversion en numpy
         features = ['Close', 'Returns', 'SMA_5', 'SMA_20', 'Volatility', 'RSI', 'MACD', 'Signal_Line', 'Lag_1', 'Lag_2']
         
         X = data[features].values

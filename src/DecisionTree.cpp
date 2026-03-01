@@ -5,64 +5,54 @@
 #include <map>
 #include <limits>
 #include <cmath>
+#include <random>
 
 // Fonctions utilitaires
 
-static double calculate_mean(const std::vector<double>& y, const std::vector<int>& indices) {
+static double calculate_mean(const double* y, const std::vector<int>& indices) {
     if (indices.empty()) return 0.0;
-    double sum = 0.0;
-    for (int idx : indices) sum += y[idx];
-    return sum / indices.size();
+    return std::accumulate(indices.begin(), indices.end(), 0.0,[y](double acc, int idx) {
+                        return acc + y[idx]; 
+                        }) / indices.size();
 }
 
-static double calculate_variance(const std::vector<double>& y, const std::vector<int>& indices) {
+static double calculate_variance(const double* y, const std::vector<int>& indices) {
     if (indices.empty()) return 0.0;
     double mean = calculate_mean(y, indices);
-    double variance = 0.0;
-    for (int idx : indices) {
-        double diff = y[idx] - mean;
-        variance += diff * diff;
-    }
-    return variance / indices.size();
+    return std::accumulate(indices.begin(), indices.end(), 0.0,[y, mean](double acc, int idx) {
+                            double diff = y[idx] - mean; return acc + diff * diff;
+                            }) / indices.size();
 }
 
-static double calculate_mode(const std::vector<double>& y, const std::vector<int>& indices) {
+static double calculate_mode(const double* y, const std::vector<int>& indices) {
     if (indices.empty()) return 0.0;
     std::map<double, int> counts;
     for (int idx : indices) counts[y[idx]]++;
-    
-    double mode = 0.0;
-    int max_count = -1;
-    for (const auto& pair : counts) {
-        if (pair.second > max_count) {
-            max_count = pair.second;
-            mode = pair.first;
-        }
-    }
-    return mode;
+
+    auto it = std::max_element(counts.begin(), counts.end(),
+                               [](const auto& a, const auto& b) { return a.second < b.second; });
+    return it != counts.end() ? it->first : 0.0;
 }
 
-static double calculate_gini(const std::vector<double>& y, const std::vector<int>& indices) {
+static double calculate_gini(const double* y, const std::vector<int>& indices) {
     if (indices.empty()) return 0.0;
     std::map<double, int> counts;
     for (int idx : indices) counts[y[idx]]++;
-    
-    double impurity = 1.0;
+
     double n = static_cast<double>(indices.size());
-    for (const auto& pair : counts) {
-        double prob = pair.second / n;
-        impurity -= prob * prob;
-    }
-    return impurity;
+    double sum_prob_sq = std::accumulate(counts.begin(), counts.end(), 0.0,
+                                         [n](double acc, const auto& pair) {
+                                             double prob = pair.second / n;
+                                             return acc + prob * prob;
+                                         });
+    return 1.0 - sum_prob_sq;
 }
 
-void DecisionTree::fit(const Matrix<double>& X_train, const std::vector<double>& y_train){
-    std::vector<int> indices(X_train.rows());
-    std::iota(indices.begin(), indices.end(), 0);
-    root_ = build_tree(X_train, y_train, indices, 0);
+void DecisionTree::fit(const Matrix<double>& X, const double* y, const std::vector<int>& indices) {
+    root_ = build_tree(X, y, indices, 0);
 }
 
-std::unique_ptr<Node> DecisionTree::build_tree(const Matrix<double>& X, const std::vector<double>& y, const std::vector<int>& indices, int depth) {
+std::unique_ptr<Node> DecisionTree::build_tree(const Matrix<double>& X, const double* y, const std::vector<int>& indices, int depth) {
     double predicted_value;
     if (task_type_ == TaskType::REGRESSION) {
         predicted_value = calculate_mean(y, indices);
@@ -95,38 +85,107 @@ std::unique_ptr<Node> DecisionTree::build_tree(const Matrix<double>& X, const st
     else current_impurity = calculate_gini(y, indices);
 
     int n_features = X.cols();
-    for (int f = 0; f < n_features; ++f) {
-        std::set<double> thresholds;
-        for (int idx : indices) thresholds.insert(X(idx, f));
+    int n_samples = static_cast<int>(indices.size());
 
-        for (double thresh : thresholds) {
-            std::vector<int> left_idx, right_idx;
-            for (int idx : indices) {
-                if (X(idx, f) <= thresh) left_idx.push_back(idx);
-                else right_idx.push_back(idx);
+    // Sélection aléatoire des features (Feature Bagging au niveau du nœud)
+    std::vector<int> feature_indices(n_features);
+    std::iota(feature_indices.begin(), feature_indices.end(), 0);
+
+    int m = max_features_;
+    if (m <= 0 || m > n_features) {
+        if (task_type_ == TaskType::CLASSIFICATION) 
+            m = std::max(1, static_cast<int>(std::sqrt(n_features)));
+        else 
+            m = std::max(1, n_features / 3); // Règle empirique standard pour la régression
+    }
+
+    static thread_local std::mt19937 gen(std::random_device{}());
+    std::shuffle(feature_indices.begin(), feature_indices.end(), gen);
+    feature_indices.resize(m);
+
+    for (int f : feature_indices) {
+        struct Sample {
+            double val;
+            double target;
+        };
+        std::vector<Sample> samples;
+        samples.reserve(n_samples);
+        for (int idx : indices) {
+            samples.push_back({X(idx, f), y[idx]});
+        }
+        std::sort(samples.begin(), samples.end(), [](const Sample& a, const Sample& b) {
+            return a.val < b.val;
+        });
+
+        if (task_type_ == TaskType::REGRESSION) {
+            double sum_l = 0, sum_sq_l = 0;
+            double sum_r = 0, sum_sq_r = 0;
+            for (const auto& s : samples) {
+                sum_r += s.target;
+                sum_sq_r += s.target * s.target;
             }
 
-            if (left_idx.empty() || right_idx.empty()) continue;
+            for (int i = 0; i < n_samples - 1; ++i) {
+                double t = samples[i].target;
+                sum_l += t; sum_sq_l += t * t;
+                sum_r -= t; sum_sq_r -= t * t;
 
-            double imp_left, imp_right;
-            if (task_type_ == TaskType::REGRESSION) {
-                imp_left = calculate_variance(y, left_idx);
-                imp_right = calculate_variance(y, right_idx);
-            } else {
-                imp_left = calculate_gini(y, left_idx);
-                imp_right = calculate_gini(y, right_idx);
+                if (samples[i].val == samples[i+1].val) continue;
+
+                int n_l = i + 1;
+                int n_r = n_samples - n_l;
+
+                double var_l = std::max(0.0, (sum_sq_l / n_l) - (sum_l / n_l) * (sum_l / n_l));
+                double var_r = std::max(0.0, (sum_sq_r / n_r) - (sum_r / n_r) * (sum_r / n_r));
+                
+                double weighted_impurity = (static_cast<double>(n_l) / n_samples) * var_l + 
+                                         (static_cast<double>(n_r) / n_samples) * var_r;
+                double reduction = current_impurity - weighted_impurity;
+
+                if (reduction > best_reduction) {
+                    best_reduction = reduction;
+                    best_feature = f;
+                    best_threshold = samples[i].val;
+                }
+            }
+        } else {
+            std::map<double, int> counts_l, counts_r;
+            double sum_sq_c_l = 0, sum_sq_c_r = 0;
+
+            for (const auto& s : samples) counts_r[s.target]++;
+            for (auto const& [val, count] : counts_r) {
+                sum_sq_c_r += static_cast<double>(count) * count;
+                counts_l[val] = 0; // Pré-initialisation pour éviter les allocations dans la boucle
             }
 
-            double w_left = (double)left_idx.size() / indices.size();
-            double w_right = (double)right_idx.size() / indices.size();
-            double weighted_impurity = w_left * imp_left + w_right * imp_right;
-            
-            double reduction = current_impurity - weighted_impurity;
+            for (int i = 0; i < n_samples - 1; ++i) {
+                double t = samples[i].target;
+                
+                sum_sq_c_l -= static_cast<double>(counts_l[t]) * counts_l[t];
+                counts_l[t]++;
+                sum_sq_c_l += static_cast<double>(counts_l[t]) * counts_l[t];
 
-            if (reduction > best_reduction) {
-                best_reduction = reduction;
-                best_feature = f;
-                best_threshold = thresh;
+                sum_sq_c_r -= static_cast<double>(counts_r[t]) * counts_r[t];
+                counts_r[t]--;
+                sum_sq_c_r += static_cast<double>(counts_r[t]) * counts_r[t];
+
+                if (samples[i].val == samples[i+1].val) continue;
+
+                int n_l = i + 1;
+                int n_r = n_samples - n_l;
+
+                double gini_l = 1.0 - (sum_sq_c_l / (static_cast<double>(n_l) * n_l));
+                double gini_r = 1.0 - (sum_sq_c_r / (static_cast<double>(n_r) * n_r));
+
+                double weighted_impurity = (static_cast<double>(n_l) / n_samples) * gini_l + 
+                                         (static_cast<double>(n_r) / n_samples) * gini_r;
+                double reduction = current_impurity - weighted_impurity;
+
+                if (reduction > best_reduction) {
+                    best_reduction = reduction;
+                    best_feature = f;
+                    best_threshold = samples[i].val;
+                }
             }
         }
     }

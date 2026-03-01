@@ -5,9 +5,8 @@
 class RandomForest {
 public:
     RandomForest(int n_trees, int max_depth, int min_samples_split, int n_samples_bootstrap = -1, int max_features = -1, TaskType task_type = TaskType::REGRESSION);
-    ~RandomForest() = default;
 
-    void fit(const Matrix<double>& X, const std::vector<double>& y);
+    void fit(const Matrix<double>& X, const double* y);
     std::vector<double> predict(const Matrix<double>& X);
 
 private:
